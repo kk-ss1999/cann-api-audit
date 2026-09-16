@@ -86,6 +86,8 @@
 
 `origin` 可为 `cann`、`local`、`other`、`uncertain`；必须填写非空 reason。可填写 `canonical` 修正已证实的别名，以及 `evidence_url` 和 `evidence_note` 提供已人工打开核实的官方文档证据；后者会明确标为人工证据。确认找不到时可设 `searched: true` 与 `search_note` 记录二次核查，但仅在完整正文覆盖且两个复核开关都通过后，报告才归类“官方文档未找到”。
 
+`local` 和 `other` 用于保存排除结论，防止相同误报在复跑时重新进入待核实；这些名称不写入最终 Markdown。仅注释或说明文字、纯本地实现、其他组件接口均按此处理。直接依赖 CANN ABI 的本地包装若需要作为依赖展示，应以它实际绑定的官方 CANN 符号作为 `cann` 条目，包装方法自己的名称仍标记为 `local`。
+
 `additional_occurrences` 每项使用 `name`、`kind`、`path`、`line`、`source`、`category`、`signals`，格式与 `.scan.json` 的 occurrences 相同。文件和行号必须确实存在；用于补充解析器无法还原的宏拼接或类型推断。若宏展开产生衍生名称，定位到触发宏的调用行，并在 signals 中写明宏定义位置。
 
 ## 可重复验证

@@ -156,10 +156,11 @@ def write_report(scan, catalog, review, output):
     if review.get("catalog_reviewed") and review.get("catalog_fingerprint") != catalog_digest(catalog):
         raise ValueError("Reviewed documentation snapshot differs from catalog; re-check before finalizing")
     groups = grouped_occurrences(scan, review, catalog)
-    rows = []
+    classified_rows = []
     for name, items in sorted(groups.items()):
         state, reason, evidence = classify(name, items, review, catalog, scan)
-        rows.append((name, items, state, reason, evidence))
+        classified_rows.append((name, items, state, reason, evidence))
+    rows = [row for row in classified_rows if row[2] != "非 CANN / 本地定义"]
     counts = Counter(row[2] for row in rows)
     finalized = (
         catalog.get("complete")
@@ -187,7 +188,7 @@ def write_report(scan, catalog, review, output):
         "- 工作区："
         + ("存在未提交/未跟踪文件，已扫描当前磁盘内容" if repository.get("worktree_status") else "干净或无 Git 信息"),
         f"- 读取文本文件：{repository['files_read']}；跳过：{len(scan['skipped'])}；读取失败：{len(scan['errors'])}",
-        f"- 接口候选：{len(groups)} 个去重名称",
+        f"- 报告接口：{len(rows)} 个去重名称",
         f"- CANN 实际版本：`{cell(catalog.get('version', '未能解析 latest'))}`",
         f"- 官方入口：[CANN latest]({LATEST})",
         f"- API 正文：已读取 {catalog.get('pages_read', 0)} / 目录选中 {catalog.get('pages_total', 0)} 页；"
@@ -201,7 +202,7 @@ def write_report(scan, catalog, review, output):
         "| 状态 | 去重名称数 |",
         "| --- | ---: |",
     ]
-    for state in ("官方文档未找到", "待核实", "已匹配", "非 CANN / 本地定义"):
+    for state in ("官方文档未找到", "待核实", "已匹配"):
         lines.append(f"| {state} | {counts[state]} |")
     lines.extend(
         [
@@ -210,7 +211,7 @@ def write_report(scan, catalog, review, output):
             "",
         ]
     )
-    for state in ("官方文档未找到", "待核实", "已匹配", "非 CANN / 本地定义"):
+    for state in ("官方文档未找到", "待核实", "已匹配"):
         lines.extend(["## " + state, ""])
         selected = [row for row in rows if row[2] == state]
         if not selected:
@@ -252,8 +253,8 @@ def write_report(scan, catalog, review, output):
         lines.append("- " + cell(limitation))
     for note in review.get("notes", []):
         lines.append("- 复核记录：" + cell(note))
-    if not groups:
-        lines.append("- 自动扫描未提取候选；在扫描范围和识别规则复核前，不能据此认定无 CANN 依赖。")
+    if not rows:
+        lines.append("- 本次没有需要列入报告的直接 CANN 接口；在扫描范围复核完成前，不能据此认定无 CANN 依赖。")
     lines.extend(
         ["", "### 文档章节覆盖", "", "| 章节 | 页面总数 | 选中 API 页面 | 备注 |", "| --- | ---: | ---: | --- |"]
     )

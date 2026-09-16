@@ -292,6 +292,13 @@ class AuditTest(unittest.TestCase):
         scan, review, catalog = self.baseline()
         review["symbols"]["aclPrivateCall"] = {"origin": "local", "reason": "Defined in this repository"}
         self.assertEqual(audit.classify("aclPrivateCall", [], review, catalog, scan)[0], "非 CANN / 本地定义")
+        review["catalog_fingerprint"] = cann_docs.catalog_digest(catalog)
+        output = self.root / "local-excluded.md"
+        counts = audit.write_report(scan, catalog, review, output)
+        content = output.read_text(encoding="utf-8")
+        self.assertNotIn("aclPrivateCall", content)
+        self.assertNotIn("非 CANN / 本地定义", content)
+        self.assertEqual(counts, {})
 
     def test_stale_review_and_wrong_version_manual_evidence_rejected(self):
         scan, review, catalog = self.baseline()
