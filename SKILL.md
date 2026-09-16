@@ -21,7 +21,9 @@ description: 扫描本地目录或远程 Git 代码仓直接使用的 CANN 接�
 
    默认解析官方 `latest`，获取整个版本的章节目录，选出全部 API 子树并下载其正文。文档不只在 `/API/`：通信库、加速库、工具、DataFlow 等章节中的 API 也须覆盖。首次可能较慢，脚本定期输出进度，缓存按实际版本隔离；同一命令可续跑，`--refresh` 强制刷新。不要为了尽快结束而静默限制文档范围。
 
-2. **核实静态候选**：自动结果是待复核报告，不代表完成审计。阅读伴随的 `.scan.json`、`.catalog.json`、`.review.json` 和覆盖信息。参照 [判定规则](references/method.md)，核实 CANN 归属、仓库本地定义、宏拼接、动态符号、导入别名及 Ascend C 方法接收者类型。脚本的前缀或 include 上下文仅是线索，不是确认归属的充分证据。
+2. **核实静态候选**：扫描器会保留宽松词法命中用于防漏，但默认报告不得把它们全部列作接口候选。只有明确的 CANN 前缀、限定命名空间、Python 导入、动态绑定、已解析接收者类型，或在 `using namespace AscendC` 下又被官方文档命中的名称才进入接口表。仅因文件包含 CANN 头文件、经本仓头文件传播上下文，或名称看起来像函数/常量而收集的 token 属于词法诊断；报告只给出隐藏数量，不逐项列为“待核实”。
+
+   自动结果仍不代表完成审计。阅读伴随的 `.scan.json`、`.catalog.json`、`.review.json` 和覆盖信息。参照 [判定规则](references/method.md)，核实 CANN 归属、仓库本地定义、宏拼接、动态符号、导入别名及 Ascend C 方法接收者类型。前缀或 include 上下文本身不是确认归属的充分证据；明确调用证据与最新官方正文名称同时命中且无本仓同名定义时，可以自动归类“已匹配”。
 
    优先复核未匹配项和弱归属项。用 `rg` 查看 include、namespace、import、`dlsym`、`ctypes`、包装宏和局部定义；扩展到必要的本仓头文件，但不追踪 torch_npu 等组件内部调用。不能把 `torch_npu.npu_*`、`torch.ops.npu.*` 或仓库自己的 `aclnn*` 算子误记为 CANN API。对自动扫描漏掉的符号，在 review 中补充带代码位置的条目。不要把所有候选批量标为 CANN。
 
@@ -35,7 +37,7 @@ description: 扫描本地目录或远程 Git 代码仓直接使用的 CANN 接�
    python SKILL_DIR/scripts/audit.py report REPORT.scan.json --catalog REPORT.catalog.json --review REPORT.review.json --output REPORT.md
    ```
 
-   报告重点列出“官方文档未找到”，另外列出“待核实”“已匹配”“非 CANN / 本地定义”，保留全部代码出现位置。不得把待核实包装为通过。文档/扫描有缺口时，保留阶段性结果并说明具体缺口及后续动作。
+   报告重点列出“官方文档未找到”，另外列出“待核实”“已匹配”“非 CANN / 本地定义”，保留接口候选的全部代码出现位置。词法诊断留在 `.scan.json` 中用于追漏，不进入接口状态统计。不得把待核实包装为通过。文档/扫描有缺口时，保留阶段性结果并说明具体缺口及后续动作。
 
 ## 输出和边界
 

@@ -10,7 +10,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from cann_docs import LATEST, SITE, build_catalog, catalog_digest, now, save_json
-from scan_repo import prepare_repository, scan_repository
+from scan_repo import candidate_tier, prepare_repository, scan_repository
 
 DEFAULT_CACHE = Path.home() / ".cache" / "cann-api-audit"
 ORIGINS = frozenset({"cann", "local", "other", "uncertain"})
@@ -65,11 +65,46 @@ def validate_review(scan, review):
             raise ValueError("Additional occurrence must quote an existing source line")
 
 
-def grouped_occurrences(scan, review):
+def all_grouped_occurrences(scan, review):
     groups = defaultdict(list)
     for occurrence in scan["occurrences"] + review.get("additional_occurrences", []):
         groups[occurrence["name"]].append(occurrence)
     return groups
+
+
+def occurrence_tier(occurrence):
+    return occurrence.get("candidate_tier") or candidate_tier(occurrence)
+
+
+def grouped_occurrences(scan, review, catalog=None):
+    """Return interface candidates, keeping broad lexical hits as diagnostics."""
+    groups = all_grouped_occurrences(scan, review)
+    if catalog is None:
+        return groups
+    reviewed = set(review.get("symbols", {}))
+    matches = catalog.get("matches", {})
+    return {
+        name: items
+        for name, items in groups.items()
+        if name in reviewed
+        or any(occurrence_tier(item) == "direct" for item in items)
+        or (
+            name in matches
+            and any(occurrence_tier(item) == "namespace-unresolved" for item in items)
+        )
+    }
+
+
+def has_local_definition(name, scan):
+    definitions = scan.get("local_definitions", {})
+    leaf = name.rsplit("::", 1)[-1].rsplit(".", 1)[-1]
+    return bool(definitions.get(name) or definitions.get(leaf))
+
+
+def automatic_cann_ownership(name, items, scan):
+    if has_local_definition(name, scan):
+        return False
+    return any(occurrence_tier(item) in {"direct", "namespace-unresolved"} for item in items)
 
 
 def manual_evidence(decision, catalog):
@@ -91,6 +126,8 @@ def classify(name, items, review, catalog, scan):
     if origin in {"local", "other"}:
         return "非 CANN / 本地定义", decision.get("reason", ""), evidence
     if origin != "cann":
+        if evidence and automatic_cann_ownership(name, items, scan):
+            return "已匹配", "直接使用证据与最新官方文档名称同时命中", evidence
         detail = "名称已在文档中匹配，但 CANN 归属尚待复核" if evidence else "CANN 归属尚待复核"
         return "待核实", detail, evidence
     if evidence:
@@ -118,7 +155,9 @@ def write_report(scan, catalog, review, output):
         raise ValueError("Catalog belongs to a different scan; regenerate documentation evidence")
     if review.get("catalog_reviewed") and review.get("catalog_fingerprint") != catalog_digest(catalog):
         raise ValueError("Reviewed documentation snapshot differs from catalog; re-check before finalizing")
-    groups = grouped_occurrences(scan, review)
+    all_groups = all_grouped_occurrences(scan, review)
+    groups = grouped_occurrences(scan, review, catalog)
+    hidden_groups = {name: items for name, items in all_groups.items() if name not in groups}
     rows = []
     for name, items in sorted(groups.items()):
         state, reason, evidence = classify(name, items, review, catalog, scan)
@@ -150,6 +189,8 @@ def write_report(scan, catalog, review, output):
         "- 工作区："
         + ("存在未提交/未跟踪文件，已扫描当前磁盘内容" if repository.get("worktree_status") else "干净或无 Git 信息"),
         f"- 读取文本文件：{repository['files_read']}；跳过：{len(scan['skipped'])}；读取失败：{len(scan['errors'])}",
+        f"- 接口候选：{len(groups)} 个去重名称；词法诊断隐藏：{len(hidden_groups)} 个去重名称 / "
+        f"{sum(len(items) for items in hidden_groups.values())} 处出现",
         f"- CANN 实际版本：`{cell(catalog.get('version', '未能解析 latest'))}`",
         f"- 官方入口：[CANN latest]({LATEST})",
         f"- API 正文：已读取 {catalog.get('pages_read', 0)} / 目录选中 {catalog.get('pages_total', 0)} 页；"
@@ -166,7 +207,12 @@ def write_report(scan, catalog, review, output):
     for state in ("官方文档未找到", "待核实", "已匹配", "非 CANN / 本地定义"):
         lines.append(f"| {state} | {counts[state]} |")
     lines.extend(
-        ["", "每个名称可有多个来源位置；名称数量不是调用次数。未经归属复核的候选不会视作已确认的 CANN 依赖。", ""]
+        [
+            "",
+            "每个名称可有多个来源位置；名称数量不是调用次数。仅因文件包含 CANN 头文件而收集的普通 token "
+            "属于词法诊断，不进入接口状态统计。",
+            "",
+        ]
     )
     for state in ("官方文档未找到", "待核实", "已匹配", "非 CANN / 本地定义"):
         lines.extend(["## " + state, ""])
@@ -206,6 +252,10 @@ def write_report(scan, catalog, review, output):
                 )
             lines.append("")
     lines.extend(["## 覆盖与限制", ""])
+    lines.append(
+        f"- 词法诊断：隐藏 {len(hidden_groups)} 个名称。只有明确前缀/命名空间/导入/动态绑定证据，"
+        "或在 `using namespace AscendC` 下又被官方文档命中的名称，才进入接口表。"
+    )
     for limitation in scan["limitations"]:
         lines.append("- " + cell(limitation))
     for note in review.get("notes", []):
@@ -283,7 +333,7 @@ def main(argv=None):
                 save_json(output, scan)
                 print(
                     f"Scanned {scan['repository']['files_read']} files; "
-                    f"{len({item['name'] for item in scan['occurrences']})} candidate names; saved {output}"
+                    f"{len({item['name'] for item in scan['occurrences']})} lexical names collected; saved {output}"
                 )
                 return 0
             save_json(scan_path, scan)
@@ -299,7 +349,11 @@ def main(argv=None):
                     for name in grouped_occurrences(scan, review)
                 }
             )
-            print(f"Scanned {scan['repository']['files_read']} files; {len(names)} candidate names", flush=True)
+            print(
+                f"Scanned {scan['repository']['files_read']} files; "
+                f"{len(names)} lexical names queued for documentation evidence",
+                flush=True,
+            )
             catalog = build_catalog(
                 names,
                 args.cache_dir / "docs",

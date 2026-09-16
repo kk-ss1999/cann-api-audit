@@ -67,6 +67,16 @@ gh repo clone kk-ss1999/cann-api-audit
 
 ## 如何读报告
 
+扫描器内部会保留宽松词法命中用于防漏，但默认报告不会把它们都算成 CANN 接口：
+
+| 层级 | 处理方式 |
+| --- | --- |
+| 明确前缀、命名空间、Python 导入、动态绑定或接收者类型 | 进入接口表，与官方文档核对 |
+| `using namespace AscendC` 下的未限定名称 | 只有同名命中官方正文或经人工确认后才进入接口表 |
+| 仅因文件包含 CANN 头文件而收集的普通 token | 作为词法诊断保留在 `.scan.json`，不进入接口状态统计 |
+
+因此，局部变量、模板参数、头文件保护宏和本地普通函数不会仅凭“所在文件使用了 CANN”就出现在“待核实”列表中。
+
 | 状态 | 含义 |
 | --- | --- |
 | **官方文档未找到** | 已确认是直接 CANN 依赖，完成扫描范围、文档覆盖和二次检索复核后，仍未找到名称 |
@@ -129,11 +139,11 @@ python scripts/audit.py analyze /workspace/vllm-ascend --output /tmp/cann-smoke.
 | 文件 | 用途 |
 | --- | --- |
 | `cann-report.md` | 阅读和交付的报告 |
-| `cann-report.scan.json` | 候选接口、源码位置及扫描缺口 |
+| `cann-report.scan.json` | 接口候选、内部词法诊断、源码位置及扫描缺口 |
 | `cann-report.catalog.json` | 实际文档版本、获取覆盖情况、匹配证据及指纹 |
 | `cann-report.review.json` | 助手或人工填写的归属判定、补充条目和复核记录 |
 
-自动生成的 review 默认未复核，所以首次报告可能有大量“待核实”。复核后再执行：
+自动生成的 review 默认未复核；首次报告只保留具备接口证据、但仍需人工确认归属或文档缺口的“待核实”项。复核后再执行：
 
 ```sh
 python scripts/audit.py report /tmp/cann-report.scan.json --catalog /tmp/cann-report.catalog.json --review /tmp/cann-report.review.json --output /tmp/cann-report.md
@@ -158,7 +168,7 @@ python scripts/audit.py analyze /workspace/vllm-ascend --output /tmp/cann-report
 
 ### 为什么有些接口不能直接判定？
 
-扫描器是静态候选提取器，不是完整的 C++ 编译器。仓库自定义的 `aclnn*` 接口、宏拼接、Python 导入遮蔽、动态加载和类方法同名都需要复核。实例类型无法还原时，也需要助手补充检查。
+扫描器是静态候选提取器，不是完整的 C++ 编译器。仓库自定义的 `aclnn*` 接口、宏拼接、Python 导入遮蔽、动态加载和类方法同名都需要复核。实例类型无法还原时，也需要助手补充检查。仅由文件级 CANN 上下文产生的普通词法名称会被隐藏，并在报告中汇总数量。
 
 ### 官方文档下载失败怎么办？
 

@@ -4,6 +4,14 @@
 
 扫描脚本提取候选，不是 C++ 编译器。跨文件 include 链、命名空间、类型接收者、Python AST 导入别名和动态绑定提供线索；最终由执行 skill 的 agent 验证。
 
+扫描结果按证据分层：
+
+- `direct`：明确 CANN 前缀、限定命名空间、Python CANN 导入、动态符号或已解析的 Ascend C 接收者类型。进入默认报告。
+- `namespace-unresolved`：仅在 `using namespace AscendC` 下出现的未限定名称。只有同名在当前官方文档正文命中，或人工 review 明确归属后才进入默认报告。
+- `context-only`：仅因所在文件直接/间接包含 CANN 头文件而收集的普通 token。只作为 `.scan.json` 中的词法诊断，不进入接口表或“待核实”计数；人工发现真实接口时通过 review 提升。
+
+文件级 include 上下文不能把局部变量、模板参数、头文件保护宏或普通函数自动提升为接口候选。宽松词法扫描用于防漏，不能直接成为用户结论。
+
 | 情况 | 处理 |
 | --- | --- |
 | `aclrtMalloc`，且调用/声明可追溯至 CANN 头文件 | 确认归属后核对同名公开 API |

@@ -244,11 +244,41 @@ class AuditTest(unittest.TestCase):
             audit.classify("aclPrivateCall", [], review, {**catalog, "queried_names": []}, scan)[0], "待核实"
         )
 
-    def test_documented_name_does_not_establish_cann_ownership(self):
+    def test_direct_cann_syntax_plus_documentation_is_auto_matched(self):
         scan, review, catalog = self.baseline()
         catalog["matches"]["aclPrivateCall"] = [{"url": "https://www.hiascend.com/x", "title": "test"}]
         review["symbols"] = {}
-        self.assertEqual(audit.classify("aclPrivateCall", [], review, catalog, scan)[0], "待核实")
+        items = [item for item in scan["occurrences"] if item["name"] == "aclPrivateCall"]
+        self.assertEqual(audit.classify("aclPrivateCall", items, review, catalog, scan)[0], "已匹配")
+
+    def test_file_context_tokens_are_hidden_from_interface_report(self):
+        self.write(
+            "kernel.cpp",
+            '#include "kernel_operator.h"\n#define ACLNN_CHECK(x) (x)\n'
+            "constexpr int A8W4_BASEK = 8;\nHelperOp();\naclrtMalloc(&p, n, 0);\n",
+        )
+        scan = self.scan()
+        review = audit.new_review(scan)
+        catalog = {"matches": {}, "queried_names": [], "complete": False}
+        groups = audit.grouped_occurrences(scan, review, catalog)
+        self.assertIn("aclrtMalloc", groups)
+        self.assertNotIn("A8W4_BASEK", groups)
+        self.assertNotIn("ACLNN_CHECK", groups)
+        self.assertNotIn("HelperOp", groups)
+
+    def test_using_ascend_unqualified_name_requires_document_match(self):
+        self.write(
+            "kernel.cpp",
+            '#include "kernel_operator.h"\nusing namespace AscendC;\nDocumentedOp(x);\nUnknownOp(x);\n',
+        )
+        scan = self.scan()
+        review = audit.new_review(scan)
+        evidence = [{"url": "https://www.hiascend.com/x", "title": "DocumentedOp"}]
+        catalog = {"matches": {"DocumentedOp": evidence}, "queried_names": [], "complete": False}
+        groups = audit.grouped_occurrences(scan, review, catalog)
+        self.assertIn("DocumentedOp", groups)
+        self.assertNotIn("UnknownOp", groups)
+        self.assertEqual(audit.classify("DocumentedOp", groups["DocumentedOp"], review, catalog, scan)[0], "已匹配")
 
     def test_local_api_is_excluded_even_if_not_in_documents(self):
         scan, review, catalog = self.baseline()

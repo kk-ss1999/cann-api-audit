@@ -88,7 +88,7 @@ CANN_LANGUAGE_SYMBOLS = frozenset(
 )
 TOKEN = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 CANN_PREFIX = re.compile(
-    r"^(?:acl(?:nn|rt|mdl|op|dvpp|tdt|prof)?[A-Z][A-Za-z0-9_]*|ACL[A-Z0-9_]*|"
+    r"^(?:acl(?:nn|rt|mdl|op|dvpp|tdt|prof)?[A-Z][A-Za-z0-9_]*|ACL_[A-Z0-9_]+|"
     r"Hccl[A-Za-z0-9_]+|hccl[A-Z][A-Za-z0-9_]*|HCCL_[A-Z0-9_]+|"
     r"Hcomm[A-Za-z0-9_]+|HCOMM_[A-Z0-9_]+|rt[A-Z][A-Za-z0-9_]*|RT_[A-Z0-9_]+|"
     r"asc_[a-z0-9_]+|ASC_[A-Z0-9_]+|ge[A-Z][A-Za-z0-9_]*|GE_[A-Z0-9_]+)$"
@@ -307,6 +307,24 @@ def infer_kind(name, after=""):
     if after.lstrip().startswith(("(", "<")):
         return "函数/方法/模板（待细分）"
     return "类型/结构体/枚举/符号（待细分）"
+
+
+def candidate_tier(occurrence):
+    """Separate reportable evidence from high-recall lexical diagnostics."""
+    signals = " ".join(occurrence.get("signals", []))
+    direct_markers = (
+        "CANN 风格名称（仅线索）",
+        "限定命名空间（需验证归属）",
+        "namespace 别名:",
+        "接收者类型（词法推断）:",
+        "Python AST 导入:",
+        "字符串符号：需验证动态绑定/接口引用",
+    )
+    if occurrence["name"] in CANN_LANGUAGE_SYMBOLS or any(marker in signals for marker in direct_markers):
+        return "direct"
+    if "using namespace AscendC；需排除局部同名" in signals:
+        return "namespace-unresolved"
+    return "context-only"
 
 
 def enumerate_sources(root, excluded):
@@ -645,6 +663,7 @@ def scan_repository(root, metadata, excluded=()):
                     else ""
                 )
             )
+        occurrence["candidate_tier"] = candidate_tier(occurrence)
     return {
         "schema": 1,
         "scan_fingerprint": digest.hexdigest(),
@@ -655,8 +674,10 @@ def scan_repository(root, metadata, excluded=()):
         "gaps": gaps,
         "local_definitions": definition_locations,
         "counts_by_category": dict(Counter(item["category"] for item in occurrences)),
+        "counts_by_candidate_tier": dict(Counter(item["candidate_tier"] for item in occurrences)),
         "limitations": [
-            "静态候选非完整语义解析：需人工检查宏展开、类型推导、导入遮蔽和同名本地接口",
+            "静态扫描保留高召回词法诊断；默认报告隐藏仅由文件级 CANN 上下文产生且无文档命中的普通 token",
+            "接口候选仍需检查宏展开、类型推导、导入遮蔽和同名本地接口",
             "不会深入第三方依赖组件内部追踪间接 CANN 调用",
         ],
     }
