@@ -72,9 +72,13 @@ class AuditTest(unittest.TestCase):
         self.write(
             "wrapper.py", 'import ctypes\nlib = ctypes.CDLL("libhccl.so")\nf = getattr(lib, "HcclCommInitRootInfo")\n'
         )
-        self.write("src/main.cpp", '#include "runtime/base.h"\nauto f = dlsym(handle, "rtGetDevice");\n')
+        self.write(
+            "src/main.cpp",
+            '#include "runtime/base.h"\nauto f = dlsym(handle, "rtGetDevice");\n'
+            'auto private_f = GetOpApiFuncAddr("InitHugeMemThreadLocal");\n',
+        )
         names = {item["name"] for item in self.scan()["occurrences"]}
-        self.assertTrue({"HcclCommInitRootInfo", "rtGetDevice"} <= names)
+        self.assertTrue({"HcclCommInitRootInfo", "rtGetDevice", "InitHugeMemThreadLocal"} <= names)
 
     def test_ascend_class_receiver_namespace_alias_and_lowercase_intrinsic(self):
         self.write(
@@ -98,15 +102,17 @@ class AuditTest(unittest.TestCase):
         self.assertTrue({"__aicore__", "half"} <= names)
         self.assertFalse({"constexpr", "const", "NOT_AN_API", "void"} & names)
 
-    def test_local_includes_propagate_context_and_local_definitions_are_flagged(self):
+    def test_local_definitions_are_flagged_and_namespace_candidates_retained(self):
         self.write("src/bridge.h", '#include "kernel_operator.h"\n')
         self.write(
-            "src/kernel.cpp", '#include "bridge.h"\nvoid aclnnLocal() {}\nLocalTensor<float> data;\naclnnLocal();\n'
+            "src/kernel.cpp",
+            '#include "bridge.h"\nusing namespace AscendC;\nvoid aclnnLocal() {}\n'
+            "LocalTensor<float> data;\naclnnLocal();\n",
         )
         result = self.scan()
         self.assertIn("aclnnLocal", result["local_definitions"])
         item = next(x for x in result["occurrences"] if x["name"] == "LocalTensor")
-        self.assertTrue(any("经本仓头文件" in value for value in item["signals"]))
+        self.assertEqual(item["candidate_tier"], "namespace-unresolved")
 
     def test_markdown_fences_inline_and_comments(self):
         self.write(
@@ -251,16 +257,18 @@ class AuditTest(unittest.TestCase):
         items = [item for item in scan["occurrences"] if item["name"] == "aclPrivateCall"]
         self.assertEqual(audit.classify("aclPrivateCall", items, review, catalog, scan)[0], "已匹配")
 
-    def test_file_context_tokens_are_hidden_from_interface_report(self):
+    def test_file_context_tokens_are_not_collected(self):
         self.write(
             "kernel.cpp",
             '#include "kernel_operator.h"\n#define ACLNN_CHECK(x) (x)\n'
             "constexpr int A8W4_BASEK = 8;\nHelperOp();\naclrtMalloc(&p, n, 0);\n",
         )
         scan = self.scan()
+        names = {item["name"] for item in scan["occurrences"]}
         review = audit.new_review(scan)
         catalog = {"matches": {}, "queried_names": [], "complete": False}
         groups = audit.grouped_occurrences(scan, review, catalog)
+        self.assertEqual(names, {"aclrtMalloc"})
         self.assertIn("aclrtMalloc", groups)
         self.assertNotIn("A8W4_BASEK", groups)
         self.assertNotIn("ACLNN_CHECK", groups)
@@ -382,6 +390,8 @@ class AuditTest(unittest.TestCase):
         self.assertIn("main.cpp:2", content)
         self.assertIn("阶段性结果", content)
         self.assertIn("待核实", content)
+        self.assertNotIn("识别线索", content)
+        self.assertNotIn("词法诊断", content)
         self.assertEqual(audit.cell("<script>|`"), "&lt;script&gt;&#124;&#96;")
 
     def test_limited_catalog_cannot_be_complete(self):

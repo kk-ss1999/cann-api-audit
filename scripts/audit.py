@@ -77,7 +77,7 @@ def occurrence_tier(occurrence):
 
 
 def grouped_occurrences(scan, review, catalog=None):
-    """Return interface candidates, keeping broad lexical hits as diagnostics."""
+    """Return interface candidates supported by direct or namespace evidence."""
     groups = all_grouped_occurrences(scan, review)
     if catalog is None:
         return groups
@@ -155,9 +155,7 @@ def write_report(scan, catalog, review, output):
         raise ValueError("Catalog belongs to a different scan; regenerate documentation evidence")
     if review.get("catalog_reviewed") and review.get("catalog_fingerprint") != catalog_digest(catalog):
         raise ValueError("Reviewed documentation snapshot differs from catalog; re-check before finalizing")
-    all_groups = all_grouped_occurrences(scan, review)
     groups = grouped_occurrences(scan, review, catalog)
-    hidden_groups = {name: items for name, items in all_groups.items() if name not in groups}
     rows = []
     for name, items in sorted(groups.items()):
         state, reason, evidence = classify(name, items, review, catalog, scan)
@@ -189,8 +187,7 @@ def write_report(scan, catalog, review, output):
         "- 工作区："
         + ("存在未提交/未跟踪文件，已扫描当前磁盘内容" if repository.get("worktree_status") else "干净或无 Git 信息"),
         f"- 读取文本文件：{repository['files_read']}；跳过：{len(scan['skipped'])}；读取失败：{len(scan['errors'])}",
-        f"- 接口候选：{len(groups)} 个去重名称；词法诊断隐藏：{len(hidden_groups)} 个去重名称 / "
-        f"{sum(len(items) for items in hidden_groups.values())} 处出现",
+        f"- 接口候选：{len(groups)} 个去重名称",
         f"- CANN 实际版本：`{cell(catalog.get('version', '未能解析 latest'))}`",
         f"- 官方入口：[CANN latest]({LATEST})",
         f"- API 正文：已读取 {catalog.get('pages_read', 0)} / 目录选中 {catalog.get('pages_total', 0)} 页；"
@@ -209,8 +206,7 @@ def write_report(scan, catalog, review, output):
     lines.extend(
         [
             "",
-            "每个名称可有多个来源位置；名称数量不是调用次数。仅因文件包含 CANN 头文件而收集的普通 token "
-            "属于词法诊断，不进入接口状态统计。",
+            "每个名称可有多个来源位置；名称数量不是调用次数。",
             "",
         ]
     )
@@ -239,7 +235,7 @@ def write_report(scan, catalog, review, output):
                     f"[{cell(proof['title']).replace('[', '').replace(']', '')}]"
                     f"({urllib.parse.quote(proof['url'], safe=':/%?=&')})"
                 )
-            lines.extend(["", "| 来源 | 文件:行号 | 代码 | 识别线索 |", "| --- | --- | --- | --- |"])
+            lines.extend(["", "| 来源 | 文件:行号 | 代码 |", "| --- | --- | --- |"])
             by_file = defaultdict(list)
             for item in items:
                 by_file[item["path"]].append(item)
@@ -248,14 +244,10 @@ def write_report(scan, catalog, review, output):
                 positions = ", ".join(str(position) for position in sorted({item["line"] for item in locations}))
                 lines.append(
                     f"| {cell(first['category'])} | `{cell(path)}:{positions}` | "
-                    f"`{cell(first['source'])}` | {cell('; '.join(first['signals']))} |"
+                    f"`{cell(first['source'])}` |"
                 )
             lines.append("")
     lines.extend(["## 覆盖与限制", ""])
-    lines.append(
-        f"- 词法诊断：隐藏 {len(hidden_groups)} 个名称。只有明确前缀/命名空间/导入/动态绑定证据，"
-        "或在 `using namespace AscendC` 下又被官方文档命中的名称，才进入接口表。"
-    )
     for limitation in scan["limitations"]:
         lines.append("- " + cell(limitation))
     for note in review.get("notes", []):
@@ -333,7 +325,8 @@ def main(argv=None):
                 save_json(output, scan)
                 print(
                     f"Scanned {scan['repository']['files_read']} files; "
-                    f"{len({item['name'] for item in scan['occurrences']})} lexical names collected; saved {output}"
+                    f"{len({item['name'] for item in scan['occurrences']})} interface candidate names collected; "
+                    f"saved {output}"
                 )
                 return 0
             save_json(scan_path, scan)
@@ -351,7 +344,7 @@ def main(argv=None):
             )
             print(
                 f"Scanned {scan['repository']['files_read']} files; "
-                f"{len(names)} lexical names queued for documentation evidence",
+                f"{len(names)} interface candidate names queued for documentation evidence",
                 flush=True,
             )
             catalog = build_catalog(

@@ -310,7 +310,7 @@ def infer_kind(name, after=""):
 
 
 def candidate_tier(occurrence):
-    """Separate reportable evidence from high-recall lexical diagnostics."""
+    """Classify collected interface candidates by ownership evidence."""
     signals = " ".join(occurrence.get("signals", []))
     direct_markers = (
         "CANN 风格名称（仅线索）",
@@ -324,7 +324,7 @@ def candidate_tier(occurrence):
         return "direct"
     if "using namespace AscendC；需排除局部同名" in signals:
         return "namespace-unresolved"
-    return "context-only"
+    return "unclassified"
 
 
 def enumerate_sources(root, excluded):
@@ -587,15 +587,6 @@ def scan_repository(root, metadata, excluded=()):
                         ["接收者类型（词法推断）: " + receivers[receiver]] + context,
                     )
                     covered.append((match.start(2), match.end(2)))
-                elif method[0].isupper():
-                    add(
-                        method,
-                        path,
-                        line,
-                        lines[line - 1],
-                        "方法（接收者类型待核实）",
-                        ["未解析接收者: " + receiver] + context,
-                    )
         covered.sort()
         covered_starts = [start for start, _ in covered]
         string_spans = [
@@ -612,21 +603,32 @@ def scan_repository(root, metadata, excluded=()):
                 continue
             prefix = bool(CANN_PREFIX.fullmatch(name))
             string_index = bisect_right(string_starts, match.start()) - 1
-            if not prefix and string_index >= 0 and match.start() < string_spans[string_index][1]:
+            in_string = string_index >= 0 and match.start() < string_spans[string_index][1]
+            binding_context = text[max(0, match.start() - 256) : match.start()]
+            dynamic_symbol = bool(
+                in_string
+                and re.search(
+                    r"\b(?:dlsym|GetProcAddress|GetOpApiFuncAddr(?:InLib)?)\s*\([^;{}\n]*$",
+                    binding_context,
+                )
+            )
+            if not prefix and in_string and not dynamic_symbol:
                 continue
             after = text[match.end() : match.end() + LOOKAHEAD_CHARS]
-            broad = bool(
+            unqualified = bool(
                 context
                 and (suffix in CPP_SUFFIXES or category(path) == "文档")
                 and (name[0].isupper() or name in CANN_LANGUAGE_SYMBOLS or re.match(r"\s*\(", after))
             )
-            if not prefix and not broad:
+            language_symbol = name in CANN_LANGUAGE_SYMBOLS and unqualified
+            namespace_symbol = using_ascend and unqualified
+            if not prefix and not language_symbol and not namespace_symbol and not dynamic_symbol:
                 continue
             before = text[max(0, match.start() - 80) : match.start()]
             # A third-party Python attribute is not a directly used CANN interface.
             if re.search(r"(?:torch_npu|torch\.ops\.npu|torch\.npu)\.[\w.]*$", before):
                 continue
-            if broad and not prefix:
+            if unqualified and not prefix and not dynamic_symbol:
                 if re.search(r"(?:std|torch|at|c10)::\s*$", before):
                     continue
                 if (
@@ -636,7 +638,12 @@ def scan_repository(root, metadata, excluded=()):
                 ):
                     continue
             line = text.count("\n", 0, match.start()) + 1
-            signals = ["CANN 风格名称（仅线索）"] if prefix else ["CANN 上下文中的未限定符号"]
+            if dynamic_symbol:
+                signals = ["字符串符号：需验证动态绑定/接口引用"]
+            elif prefix:
+                signals = ["CANN 风格名称（仅线索）"]
+            else:
+                signals = ["CANN 上下文中的未限定符号"]
             signals += context
             if using_ascend:
                 signals.append("using namespace AscendC；需排除局部同名")
@@ -645,7 +652,10 @@ def scan_repository(root, metadata, excluded=()):
             if re.match(r"\s*\([^;{}]*\)\s*(?:const\s*)?\{", after):
                 definitions[name].append(f"{path}:{line}")
             # Dynamic binding strings and macro arguments intentionally survive lexical scanning.
-            if '"' + name + '"' in lines[line - 1] or "'" + name + "'" in lines[line - 1]:
+            if (
+                ('"' + name + '"' in lines[line - 1] or "'" + name + "'" in lines[line - 1])
+                and "字符串符号：需验证动态绑定/接口引用" not in signals
+            ):
                 signals.append("字符串符号：需验证动态绑定/接口引用")
             add(name, path, line, lines[line - 1], infer_kind(name, after), signals)
     occurrences.sort(key=lambda item: (item["name"], item["path"], item["line"]))
@@ -676,7 +686,6 @@ def scan_repository(root, metadata, excluded=()):
         "counts_by_category": dict(Counter(item["category"] for item in occurrences)),
         "counts_by_candidate_tier": dict(Counter(item["candidate_tier"] for item in occurrences)),
         "limitations": [
-            "静态扫描保留高召回词法诊断；默认报告隐藏仅由文件级 CANN 上下文产生且无文档命中的普通 token",
             "接口候选仍需检查宏展开、类型推导、导入遮蔽和同名本地接口",
             "不会深入第三方依赖组件内部追踪间接 CANN 调用",
         ],
