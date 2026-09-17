@@ -13,7 +13,7 @@ from cann_docs import LATEST, SITE, build_catalog, catalog_digest, now, save_jso
 from scan_repo import candidate_tier, prepare_repository, scan_repository
 
 DEFAULT_CACHE = Path.home() / ".cache" / "cann-api-audit"
-ORIGINS = frozenset({"cann", "local", "other", "uncertain"})
+ORIGINS = frozenset({"cann", "target", "local", "other", "uncertain"})
 
 
 def read_json(path):
@@ -102,6 +102,8 @@ def has_local_definition(name, scan):
 
 
 def automatic_cann_ownership(name, items, scan):
+    if scan.get("target"):
+        return False  # Generic ownership requires review of imports, scopes and local definitions.
     if has_local_definition(name, scan):
         return False
     return any(occurrence_tier(item) in {"direct", "namespace-unresolved"} for item in items)
@@ -112,6 +114,10 @@ def manual_evidence(decision, catalog):
     if not url:
         return []
     parsed = urllib.parse.urlsplit(url)
+    if catalog.get("target"):
+        if url not in {page["url"] for page in catalog.get("articles", [])}:
+            raise ValueError("Manual evidence must belong to the reviewed documentation snapshot")
+        return [{"url": url, "title": decision["evidence_note"], "manual": True}]
     version_prefix = SITE + "/document/detail/" + catalog.get("prefix", "UNRESOLVED") + "/"
     if parsed.scheme != "https" or not url.startswith(version_prefix):
         raise ValueError("Manual evidence must be an HTTPS official page for the resolved CANN version")
@@ -119,16 +125,17 @@ def manual_evidence(decision, catalog):
 
 
 def classify(name, items, review, catalog, scan):
+    target_name = scan.get("target", {}).get("name", "CANN")
     decision = review.get("symbols", {}).get(name, {})
     origin = decision.get("origin", "uncertain")
     canonical = decision.get("canonical", name)
     evidence = manual_evidence(decision, catalog) or catalog.get("matches", {}).get(canonical, [])
     if origin in {"local", "other"}:
         return "非 CANN / 本地定义", decision.get("reason", ""), evidence
-    if origin != "cann":
+    if origin not in {"cann", "target"}:
         if evidence and automatic_cann_ownership(name, items, scan):
             return "已匹配", "直接使用证据与最新官方文档名称同时命中", evidence
-        detail = "名称已在文档中匹配，但 CANN 归属尚待复核" if evidence else "CANN 归属尚待复核"
+        detail = f"名称已在文档中匹配，但 {target_name} 归属尚待复核" if evidence else f"{target_name} 归属尚待复核"
         return "待核实", detail, evidence
     if evidence:
         return "已匹配", decision["reason"], evidence
@@ -170,8 +177,10 @@ def write_report(scan, catalog, review, output):
         and not counts["待核实"]
     )
     repository = scan["repository"]
+    target_name = cell(scan.get("target", {}).get("name", "CANN"))
+    entry = catalog.get("entry", LATEST)
     lines = [
-        "# CANN 公开接口核对报告",
+        f"# {target_name} 公开接口核对报告",
         "",
         "**结论状态：" + ("已完成本次核对" if finalized else "阶段性结果，尚不能判断全部接口通过") + "**",
         "",
@@ -189,8 +198,8 @@ def write_report(scan, catalog, review, output):
         + ("存在未提交/未跟踪文件，已扫描当前磁盘内容" if repository.get("worktree_status") else "干净或无 Git 信息"),
         f"- 读取文本文件：{repository['files_read']}；跳过：{len(scan['skipped'])}；读取失败：{len(scan['errors'])}",
         f"- 报告接口：{len(rows)} 个去重名称",
-        f"- CANN 实际版本：`{cell(catalog.get('version', '未能解析 latest'))}`",
-        f"- 官方入口：[CANN latest]({LATEST})",
+        f"- {target_name} 实际版本：`{cell(catalog.get('version', '未能解析 latest'))}`",
+        f"- 官方入口：[{target_name} 官方文档]({entry})",
         f"- API 正文：已读取 {catalog.get('pages_read', 0)} / 目录选中 {catalog.get('pages_total', 0)} 页；"
         f"获取失败/目录缺口 {len(catalog.get('failures', []))} 项",
         f"- 文档自动覆盖：{'完整抓取所选 API 页面' if catalog.get('complete') else '不完整'}；"
@@ -249,12 +258,14 @@ def write_report(scan, catalog, review, output):
                 )
             lines.append("")
     lines.extend(["## 覆盖与限制", ""])
+    if catalog.get("coverage_note"):
+        lines.append("- 文档覆盖复核：" + cell(catalog["coverage_note"]))
     for limitation in scan["limitations"]:
         lines.append("- " + cell(limitation))
     for note in review.get("notes", []):
         lines.append("- 复核记录：" + cell(note))
     if not rows:
-        lines.append("- 本次没有需要列入报告的直接 CANN 接口；在扫描范围复核完成前，不能据此认定无 CANN 依赖。")
+        lines.append(f"- 本次没有需要列入报告的直接 {target_name} 接口；在扫描范围复核完成前，不能据此认定无该依赖。")
     lines.extend(
         ["", "### 文档章节覆盖", "", "| 章节 | 页面总数 | 选中 API 页面 | 备注 |", "| --- | ---: | ---: | --- |"]
     )

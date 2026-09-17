@@ -1,4 +1,4 @@
 interface:
-  display_name: "CANN 公开接口核对"
-  short_description: "扫描任意代码仓直接使用的 CANN 接口，对照最新官方文档生成可追溯报告"
-  default_prompt: "使用 $cann-api-audit 扫描这个代码仓直接使用的 CANN 接口，与最新官方 API 文档核对并生成 Markdown 报告。"
+  display_name: "官方接口依赖核对"
+  short_description: "输入代码仓和官方文档入口，自动识别依赖对象并核对直接接口"
+  default_prompt: "使用 $cann-api-audit 根据代码仓和官方文档入口自动识别依赖对象，核对直接使用的接口并生成 Markdown 报告。"

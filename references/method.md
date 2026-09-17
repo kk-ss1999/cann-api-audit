@@ -1,5 +1,7 @@
 # 扫描、证据与复核
 
+本页的 CANN 识别与获取细节仅用于 CANN 适配。其他对象使用 [通用流程](generic.md)，共用人工复核格式；其 origin 使用 `target`。
+
 ## 归属判定
 
 扫描脚本提取候选，不是 C++ 编译器。跨文件 include 链、命名空间、类型接收者、Python AST 导入别名和动态绑定提供线索；最终由执行 skill 的 agent 验证。
@@ -86,7 +88,7 @@
 }
 ```
 
-`origin` 可为 `cann`、`local`、`other`、`uncertain`；必须填写非空 reason。可填写 `canonical` 修正已证实的别名，以及 `evidence_url` 和 `evidence_note` 提供已人工打开核实的官方文档证据；后者会明确标为人工证据。确认找不到时可设 `searched: true` 与 `search_note` 记录二次核查，但仅在完整正文覆盖且两个复核开关都通过后，报告才归类“官方文档未找到”。
+`origin` 可为 `target`（当前目标）、`cann`（兼容 CANN）、`local`、`other`、`uncertain`；必须填写非空 reason。可填写 `canonical` 修正已证实的别名，以及 `evidence_url` 和 `evidence_note` 提供已人工打开核实的官方文档证据；后者会明确标为人工证据。确认找不到时可设 `searched: true` 与 `search_note` 记录二次核查，但仅在完整正文覆盖且两个复核开关都通过后，报告才归类“官方文档未找到”。
 
 `local` 和 `other` 用于保存排除结论，防止相同误报在复跑时重新进入待核实；这些名称不写入最终 Markdown。仅注释或说明文字、纯本地实现、其他组件接口均按此处理。直接依赖 CANN ABI 的本地包装若需要作为依赖展示，应以它实际绑定的官方 CANN 符号作为 `cann` 条目，包装方法自己的名称仍标记为 `local`。
 
