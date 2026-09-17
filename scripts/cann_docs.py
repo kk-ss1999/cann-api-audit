@@ -25,6 +25,7 @@ API_SECTION = re.compile(
     r"API|接口参考|接口说明|数据结构|枚举|宏定义|常量定义|语言接口|开发接口|基础.*接口|接口$", re.I
 )
 API_PATH = re.compile(r"/(?:API|api|api_ref|api_reference|apiref|.*_api)/", re.I)
+OFFICIAL_API_SECTIONS = ("API参考", "算子库", "通信库", "加速库")
 
 
 def now():
@@ -42,7 +43,16 @@ def save_json(path, value):
 def catalog_digest(catalog):
     stable = {
         key: catalog.get(key)
-        for key in ("version", "prefix", "complete", "pages_total", "pages_read", "failures", "name_fingerprint")
+        for key in (
+            "version",
+            "prefix",
+            "document_sections",
+            "complete",
+            "pages_total",
+            "pages_read",
+            "failures",
+            "name_fingerprint",
+        )
     }
     stable["articles"] = sorted((page["url"], page["content_sha256"]) for page in catalog.get("articles", []))
     return hashlib.sha256(json.dumps(stable, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
@@ -186,6 +196,10 @@ def walk_nodes(nodes, ancestors=()):
 
 
 def selected_api(node, ancestors, chapter_names):
+    if not chapter_names or chapter_names[0].strip() not in OFFICIAL_API_SECTIONS:
+        return False
+    if chapter_names[0].strip() == "API参考":
+        return True
     names = chapter_names + ancestors + (node.get("nodeName", ""),)
     return any(API_SECTION.search(name) for name in names) or bool(API_PATH.search("/" + node.get("nodeUrl", "")))
 
@@ -207,6 +221,8 @@ def discover(info, cache, refresh=False):
             errors.append({"url": code, "error": "Chapter outside pinned version"})
             continue
         chapter_names = parents + (chapter.get("nodeName", code),)
+        if not chapter_names or chapter_names[0].strip() not in OFFICIAL_API_SECTIONS:
+            continue
         entry = {
             "chapter": code,
             "titles": list(chapter_names),
@@ -304,6 +320,7 @@ def build_catalog(names, cache, refresh=False, max_pages=None, extra_pages=None)
     cache = Path(cache)
     catalog = {
         "generated_at": now(),
+        "document_sections": list(OFFICIAL_API_SECTIONS),
         "complete": False,
         "matches": {},
         "failures": [],

@@ -206,10 +206,75 @@ class AuditTest(unittest.TestCase):
         self.assertFalse(cann_docs.name_matches("GetValue", "AscendC::LocalTensor::GetValue", page))
         self.assertTrue(cann_docs.name_matches("GetValue", "AscendC::GlobalTensor::GetValue", page))
 
-    def test_api_selection_is_not_restricted_to_API_directory(self):
-        node = {"nodeName": "HcclInit", "nodeUrl": "zh/CANNCommunityEdition/v/commlib/hcclug/api_ref/init.md"}
-        self.assertTrue(cann_docs.selected_api(node, ("使用通信库API实现通信功能",), ("通信库", "HCCL集合通信库")))
-        self.assertFalse(cann_docs.selected_api({"nodeName": "安装", "nodeUrl": "x/install.html"}, (), ("发行与安装",)))
+    def test_api_selection_is_limited_to_four_official_sections(self):
+        api_reference_page = {"nodeName": "aclInit", "nodeUrl": "x/runtime/init.html"}
+        library_api_page = {
+            "nodeName": "HcclInit",
+            "nodeUrl": "zh/CANNCommunityEdition/v/commlib/hcclug/api_ref/init.md",
+        }
+        guide_page = {"nodeName": "快速入门", "nodeUrl": "x/quick_start.html"}
+
+        self.assertTrue(cann_docs.selected_api(api_reference_page, (), ("API参考", "Runtime运行时API")))
+        self.assertTrue(cann_docs.selected_api(library_api_page, (), ("通信库", "HCCL集合通信库")))
+        self.assertTrue(cann_docs.selected_api(library_api_page, (), ("加速库", "示例加速库")))
+        self.assertTrue(cann_docs.selected_api(library_api_page, (), ("算子库", "示例算子库")))
+        self.assertFalse(cann_docs.selected_api(guide_page, (), ("通信库", "HCCL集合通信库")))
+
+        excluded_sections = (
+            "编程语言",
+            "调试与分析工具",
+            "参考",
+            "更多",
+            "应用开发",
+            "TBE与AI CPU算子开发",
+            "LLM DataDist",
+            "DataFlow",
+            "ISP",
+        )
+        for section in excluded_sections:
+            with self.subTest(section=section):
+                self.assertFalse(cann_docs.selected_api(library_api_page, ("API",), (section, "接口参考")))
+
+    def test_discovery_does_not_fetch_or_report_excluded_sections(self):
+        prefix = "zh/CANNCommunityEdition/v"
+        directory_tree = {
+            "success": True,
+            "data": [
+                {
+                    "nodeName": "编程语言",
+                    "children": [
+                        {"nodeName": "Ascend C算子开发", "codePath": prefix + "/programug/Ascendcopdevg"}
+                    ],
+                },
+                {
+                    "nodeName": "API参考",
+                    "children": [{"nodeName": "Runtime运行时API", "codePath": prefix + "/API/runtimeapi"}],
+                },
+            ],
+        }
+        api_directory = {
+            "success": True,
+            "data": {
+                "directory": [
+                    {"nodeName": "aclInit", "nodeUrl": prefix + "/API/runtimeapi/aclInit.html"}
+                ]
+            },
+        }
+
+        def fake_fetch(url, _cache, _refresh=False):
+            if "/doc/version/new/tree?" in url:
+                return {"text": json.dumps(directory_tree)}
+            if url.endswith(prefix + "/API/runtimeapi"):
+                return {"text": json.dumps(api_directory)}
+            self.fail("excluded chapter was fetched: " + url)
+
+        info = {"prefix": prefix, "entry": "https://www.hiascend.com/document/detail/" + prefix + "/index.html"}
+        with patch.object(cann_docs, "fetch", side_effect=fake_fetch):
+            pages, summary, errors = cann_docs.discover(info, self.root)
+
+        self.assertFalse(errors)
+        self.assertEqual([item["titles"][0] for item in summary], ["API参考"])
+        self.assertEqual([page["title"] for page in pages], ["aclInit"])
 
     def test_latest_failure_is_incomplete_not_empty_success(self):
         with patch.object(cann_docs, "resolve_latest", side_effect=ValueError("network unavailable")):
