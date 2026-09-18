@@ -2,6 +2,8 @@
 
 提供 **本地/远端代码仓 + 官方接口文档入口**，skill 自动识别依赖对象、整理有官方依据的识别规则，找出代码仓直接使用的接口，与指定官方文档按名称核对，生成 Markdown 报告。支持 CANN、PTA 等依赖对象。
 
+这是供 AI 编程助手执行的 skill。你只需给出两个输入；助手负责阅读官方文档、确定识别规则、运行扫描并复核结果。仓库和调用名称为 `cann-api-audit`，核对对象由输入的文档决定。
+
 ## 怎么用
 
 需要 Python 3.10+、Git，以及读取代码仓和官方文档的网络权限。扫描脚本仅使用标准库，无须安装被扫描项目依赖。
@@ -11,6 +13,16 @@ git clone https://github.com/kk-ss1999/cann-api-audit.git
 ```
 
 将目录放到助手的 skills 目录，或让助手读取下载目录里的 `SKILL.md`。调用名称仍为 `$cann-api-audit`。
+
+不安装时也可以直接告诉助手：
+
+```text
+请读取 <下载目录>/cann-api-audit/SKILL.md，按其中的流程执行。
+代码仓：<本地目录或远端 Git URL>
+官方文档入口：<官方 API 文档链接>
+```
+
+助手需要能够读取本地文件、运行 Python/Git，并访问官方文档。远端私有代码仓还需要已有的仓库访问权限。
 
 给助手发送：
 
@@ -24,12 +36,15 @@ git clone https://github.com/kk-ss1999/cann-api-audit.git
 代码仓也可以是远端 Git URL：
 
 ```text
-使用 $cann-api-audit 核对 https://github.com/example/project.git
-对官方文档 <粘贴官方文档入口> 所属产品的直接接口依赖。
+使用 $cann-api-audit：
+代码仓：https://github.com/vllm-project/vllm-ascend.git
+官方文档入口：https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/latest/API/headerliblist/hfandlf_09_0001.html
 输出 Markdown 报告。
 ```
 
 不用填写产品名称、模块名或规则 JSON。助手先从官方入口识别产品、版本和 API 范围，再根据官方说明与源码导入、命名空间、动态绑定等确定接口归属。产品无法确定或入口不可读时会说明缺口。
+
+提供仓库子目录即可限定扫描范围。报告路径可选；未指定时由助手选择仓库外的输出目录。官方入口建议直接指向 API 参考或能够导航到 API 的产品文档目录。
 
 ## 核对范围
 
@@ -60,11 +75,13 @@ CANN 的官方证据限定为“API参考、算子库、通信库、加速库”
 
 通用 skill 由助手读取不同官网并生成规则与正文快照，再调用脚本扫描和匹配。**通用脚本本身不具备仅凭 URL 自动理解、抓取任意官网的能力**；动态网站、PDF、目录完整性和产品归属由助手核实。
 
+CANN 提供专用目录获取适配；其他产品使用通用流程。PTA 的通用扫描与报告流程已有模拟样例测试，尚未完成真实 PTA 官网的端到端审计；具体官网的可读性和目录覆盖需要在实际执行时验证。
+
 基础扫描支持 Python 导入和别名引用、C/C++ 限定名及文档证实的符号规则。宏展开、动态绑定、实例方法、其他语言和配置需助手补查；扫描器成功不等于审计完成。文档或源码存在未核实缺口时输出阶段性报告。
 
 - [SKILL.md](SKILL.md)：完整执行流程。
 - [通用配置与正文快照](references/generic.md)：内部数据格式与复核约束。
-- [CANN 专用适配](references/cann.md)：原有 CANN 自动抓取流程。
+- [CANN 专用适配](references/cann.md)：CANN 目录获取与核对流程。
 
 开发验证：
 
