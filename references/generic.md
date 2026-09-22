@@ -60,3 +60,24 @@ PTA 的模块名和扩展注册路径需从实际入口确认，不能把产品�
 `review.scope_reviewed` 覆盖所有相关源码及扫描器不支持的语法；`review.catalog_reviewed` 覆盖 API 目录与版本，两个开关均不能因脚本成功退出而自动设为 true。以正文、产品、规则和入口指纹防止跨目标复用旧复核。
 
 CANN 旧版脚本和报告命令仍可用。通用流程的报告入口为 `scripts/audit.py report`；其 `analyze`/`scan` 子命令仍是 CANN 专用，不可用来扫描 PTA 等其他对象。
+
+
+## 批量配置
+
+多个入口时，每个对象仍使用上文独立的 profile 和 documents.json。由助手生成 `targets.json`，不要求用户填写：
+
+```json
+{
+  "targets": [
+    {"docs_entry": "https://docs.example.org/a/", "profile": "a/profile.json", "docs_manifest": "a/documents.json"},
+    {"docs_entry": "https://docs.example.org/b/", "profile": "b/profile.json", "docs_manifest": "b/documents.json"},
+    {"docs_entry": "https://docs.example.org/unavailable/", "error": "官方入口无法读取，尚未确定依赖对象"}
+  ]
+}
+```
+
+所有路径相对 `targets.json`，每项 docs_entry 必须与其 profile 和 manifest 一致。批量输入、正文及输出均放在被扫描仓库之外。相同入口去重，入口顺序调整不改变复核目录；对象或版本变化会使旧复核失效。需要重新复核时另存旧 review 并生成新记录，不自动沿用完成标记。
+
+批量后端一次检出仓库、一次读取源码，给所有对象使用相同快照。每库有独立 scan/catalog/review 文件，目录以入口指纹标识；产品显示名称相同不会覆盖文件。初次报告生成后逐库复核，使用 `batch_audit.py report` 重新生成总报告。不要拼接过期 Markdown，必须从当前各库 JSON 及指纹重新验证。
+
+任何入口失败、正文不完整或仍有待核实项，整体保持阶段性状态；独立完成的库仍可显示完成。跨库同名符号只能用该库自己快照内的证据匹配。所有库均无待核实且通过各自覆盖复核后，才允许整体标记完成。

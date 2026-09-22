@@ -56,9 +56,13 @@ def validate_profile(profile, entry):
             raise ValueError("Each recognition rule needs a value and official evidence")
 
 
-def scan(root, metadata, profile, excluded=()):
+def scan(root, metadata, profile, excluded=(), source_snapshot=None):
     root = Path(root).resolve()
-    sources, skipped, errors = enumerate_sources(root, {Path(p).resolve() for p in excluded})
+    sources, skipped, errors = (
+        source_snapshot
+        if source_snapshot is not None
+        else enumerate_sources(root, {Path(p).resolve() for p in excluded})
+    )
     occurrences, gaps, definitions = [], [], {}
     rules = profile["rules"]
     modules = [r["value"] for r in rules if r["kind"] == "python_module"]

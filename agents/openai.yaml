@@ -1,4 +1,4 @@
 interface:
   display_name: "官方接口依赖核对"
-  short_description: "输入代码仓和官方文档入口，自动识别依赖对象并核对直接接口"
-  default_prompt: "使用 $cann-api-audit 根据代码仓和官方文档入口自动识别依赖对象，核对直接使用的接口并生成 Markdown 报告。"
+  short_description: "输入一个代码仓和多个官方文档入口，分库核对直接接口"
+  default_prompt: "使用 $cann-api-audit 根据一个代码仓和一个或多个官方文档入口自动识别依赖对象，分库核对直接接口并生成汇总 Markdown 报告。"
